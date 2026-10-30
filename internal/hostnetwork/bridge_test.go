@@ -3,8 +3,6 @@
 package hostnetwork
 
 import (
-	"bytes"
-	"encoding/binary"
 	"net"
 	"time"
 
@@ -13,22 +11,9 @@ import (
 	"github.com/vishvananda/netlink"
 )
 
-var _ = Describe("ensureBridgeFixedMacAddress", func() {
-	const (
-		bridgeName = "testbrmac"
-		vni        = 100
-	)
-
-	// copied the function from `ensureBridgeFixedMacAddress` implementation
-	expectedMAC := func(vni int) net.HardwareAddr {
-		GinkgoHelper()
-		mac := make([]byte, macSize)
-		buf := new(bytes.Buffer)
-		Expect(binary.Write(buf, binary.BigEndian, int32(vni+1))).To(Succeed())
-		copy(mac, macHeader)
-		copy(mac[2:], buf.Bytes())
-		return mac
-	}
+var _ = Describe("ensureBridgeMACAddress", func() {
+	const bridgeName = "testbrmac"
+	expectedMAC := net.HardwareAddr{0x00, 0xf3, 0x00, 0x00, 0x00, 0x65}
 
 	BeforeEach(func() {
 		Expect(
@@ -49,11 +34,11 @@ var _ = Describe("ensureBridgeFixedMacAddress", func() {
 		bridge, err := netlink.LinkByName(bridgeName)
 		Expect(err).NotTo(HaveOccurred())
 
-		Expect(ensureBridgeFixedMacAddress(bridge, vni)).To(Succeed())
+		Expect(ensureBridgeMACAddress(bridge, expectedMAC)).To(Succeed())
 
 		bridge, err = netlink.LinkByName(bridgeName)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(bridge.Attrs().HardwareAddr).To(Equal(expectedMAC(vni)))
+		Expect(bridge.Attrs().HardwareAddr).To(Equal(expectedMAC))
 	})
 
 	It("should be idempotent and not emit netlink events when MAC is already correct", func() {
@@ -61,12 +46,12 @@ var _ = Describe("ensureBridgeFixedMacAddress", func() {
 		Expect(err).NotTo(HaveOccurred())
 
 		By("setting the MAC for the first time")
-		Expect(ensureBridgeFixedMacAddress(bridge, vni)).To(Succeed())
+		Expect(ensureBridgeMACAddress(bridge, expectedMAC)).To(Succeed())
 
 		By("re-fetching the bridge to pick up the updated MAC")
 		bridge, err = netlink.LinkByName(bridgeName)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(bridge.Attrs().HardwareAddr).To(Equal(expectedMAC(vni)))
+		Expect(bridge.Attrs().HardwareAddr).To(Equal(expectedMAC))
 
 		By("subscribing to netlink link updates")
 		updates := make(chan netlink.LinkUpdate, 16)
@@ -74,8 +59,8 @@ var _ = Describe("ensureBridgeFixedMacAddress", func() {
 		defer close(done)
 		Expect(netlink.LinkSubscribe(updates, done)).To(Succeed())
 
-		By("calling ensureBridgeFixedMacAddress again with the same VNI")
-		Expect(ensureBridgeFixedMacAddress(bridge, vni)).To(Succeed())
+		By("calling ensureBridgeMACAddress again with the same MAC")
+		Expect(ensureBridgeMACAddress(bridge, expectedMAC)).To(Succeed())
 
 		By("verifying no netlink link update was emitted for the bridge")
 		Consistently(func() bool {
@@ -89,11 +74,11 @@ var _ = Describe("ensureBridgeFixedMacAddress", func() {
 				return true
 			}
 		}).WithTimeout(500*time.Millisecond).WithPolling(50*time.Millisecond).Should(BeTrue(),
-			"ensureBridgeFixedMacAddress should not emit netlink events when MAC is already correct")
+			"ensureBridgeMACAddress should not emit netlink events when MAC is already correct")
 
 		By("verifying the MAC is still correct")
 		bridge, err = netlink.LinkByName(bridgeName)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(bridge.Attrs().HardwareAddr).To(Equal(expectedMAC(vni)))
+		Expect(bridge.Attrs().HardwareAddr).To(Equal(expectedMAC))
 	})
 })
